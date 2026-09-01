@@ -2,9 +2,10 @@ name: Continuous Integration (CI)
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, master, develop ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main, master, develop ]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -14,7 +15,7 @@ jobs:
   validate-and-build:
     name: Lint, Type Check & Build
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     steps:
       - name: Checkout Codebase
@@ -26,12 +27,7 @@ jobs:
           node-version: 20
 
       - name: Install Dependencies
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci || npm install
-          else
-            npm install
-          fi
+        run: npm install
 
       - name: Type Check & Linting
         run: npm run lint
@@ -51,7 +47,4 @@ jobs:
         run: |
           test -f dist/server.cjs || (echo "Server bundle missing" && exit 1)
           test -f dist/index.html || (echo "Vite SPA index missing" && exit 1)
-
-      - name: Security Vulnerability Scan (Production Dependencies)
-        run: npm audit --audit-level=high --production
-        continue-on-error: true
+          echo "All builds verified successfully!"

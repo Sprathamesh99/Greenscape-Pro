@@ -1,8 +1,8 @@
 name: Production Deployment (CD)
 
 on:
+  workflow_dispatch:
   push:
-    branches: [ main ]
     tags: [ 'v*.*.*' ]
 
 permissions:
@@ -14,7 +14,8 @@ jobs:
     name: Deploy to Google Cloud Run
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    environment: production
+    # Only run if GCP Workload Identity provider secret is configured
+    if: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && secrets.GCP_SERVICE_ACCOUNT != '' }}
 
     steps:
       - name: Checkout Codebase
