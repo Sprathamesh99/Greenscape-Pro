@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: greenscape-pro-app
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
+      - GHL_API_KEY=${GHL_API_KEY}
+      - GHL_WEBHOOK_URL=${GHL_WEBHOOK_URL}
+      - SUPABASE_URL=http://postgres:5432
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: greenscape-pro-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=greenscape_admin
+      - POSTGRES_PASSWORD=greenscape_dev_secret
+      - POSTGRES_DB=greenscape_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U greenscape_admin -d greenscape_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local

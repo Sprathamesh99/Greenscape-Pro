@@ -1,0 +1,8 @@
+{
+  "name": "Greenscape Pro - Proposal Intelligence Agent",
+  "description": "AI-powered proposal intelligence and deterministic pricing system for residential hardscape and landscape design-build.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

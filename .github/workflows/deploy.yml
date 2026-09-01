@@ -1,0 +1,67 @@
+name: Production Deployment (CD)
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*.*.*' ]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy-production:
+    name: Deploy to Google Cloud Run
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (Workload Identity)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Authorize Docker for Google Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - name: Build & Push Production Container Image
+        env:
+          IMAGE_URI: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/greenscape-pro/app:${{ github.sha }}
+        run: |
+          docker build -t $IMAGE_URI -f Dockerfile .
+          docker tag $IMAGE_URI us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/greenscape-pro/app:latest
+          docker push $IMAGE_URI
+          docker push us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/greenscape-pro/app:latest
+
+      - name: Deploy to Cloud Run Service
+        id: deploy
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: greenscape-pro-agent
+          region: us-central1
+          image: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/greenscape-pro/app:${{ github.sha }}
+          env_vars: |
+            NODE_ENV=production
+            PORT=3000
+          secrets: |
+            GEMINI_API_KEY=GEMINI_API_KEY:latest
+            SLACK_WEBHOOK_URL=SLACK_WEBHOOK_URL:latest
+            GHL_API_KEY=GHL_API_KEY:latest
+            GHL_WEBHOOK_URL=GHL_WEBHOOK_URL:latest
+            SUPABASE_URL=SUPABASE_URL:latest
+            SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest
+
+      - name: Automated Smoke Test & Health Check
+        run: |
+          PUBLIC_URL="${{ steps.deploy.outputs.url }}"
+          echo "Testing deployment health at: ${PUBLIC_URL}/api/health"
+          curl --fail --retry 5 --retry-delay 5 --retry-connrefused "${PUBLIC_URL}/api/health" || exit 1
+          echo "Deployment verified healthy!"
