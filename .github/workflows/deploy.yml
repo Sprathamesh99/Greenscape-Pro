@@ -1,6 +1,6 @@
 name: Production Deployment (CD)
 
-# Only triggered manually via the GitHub Actions UI
+# Triggered only manually via GitHub Actions UI
 on:
   workflow_dispatch:
     inputs:
@@ -27,41 +27,47 @@ jobs:
       - name: Checkout Codebase
         uses: actions/checkout@v4
 
-      - name: Verify Deployment Secrets
+      - name: Verify GCP Secrets Configuration
+        id: check_auth
+        env:
+          GCP_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_SA: ${{ secrets.GCP_SERVICE_ACCOUNT }}
         run: |
-          if [ -z "${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}" ] || [ -z "${{ secrets.GCP_SERVICE_ACCOUNT }}" ]; then
-            echo "::warning ::GCP Workload Identity credentials not configured in GitHub Secrets. Skipping Cloud Run deployment step."
-            echo "To enable direct GitHub Actions CD, add GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_SERVICE_ACCOUNT to your repository secrets."
-            exit 0
+          if [ -n "$GCP_PROVIDER" ] && [ -n "$GCP_SA" ]; then
+            echo "has_auth=true" >> "$GITHUB_OUTPUT"
+            echo "GCP Workload Identity credentials verified."
+          else
+            echo "has_auth=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::GCP credentials not configured in repository secrets. Skipping deployment."
           fi
 
       - name: Authenticate to Google Cloud (Workload Identity)
-        if: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && secrets.GCP_SERVICE_ACCOUNT != '' }}
+        if: steps.check_auth.outputs.has_auth == 'true'
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Set up Cloud SDK
-        if: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && secrets.GCP_SERVICE_ACCOUNT != '' }}
+        if: steps.check_auth.outputs.has_auth == 'true'
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Authorize Docker for Google Artifact Registry
-        if: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && secrets.GCP_SERVICE_ACCOUNT != '' }}
+        if: steps.check_auth.outputs.has_auth == 'true'
         run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
 
       - name: Build & Push Production Container Image
-        if: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && secrets.GCP_SERVICE_ACCOUNT != '' }}
+        if: steps.check_auth.outputs.has_auth == 'true'
         env:
           IMAGE_URI: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/greenscape-pro/app:${{ github.sha }}
         run: |
-          docker build -t $IMAGE_URI -f Dockerfile .
-          docker tag $IMAGE_URI us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/greenscape-pro/app:latest
-          docker push $IMAGE_URI
+          docker build -t "$IMAGE_URI" -f Dockerfile .
+          docker tag "$IMAGE_URI" us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/greenscape-pro/app:latest
+          docker push "$IMAGE_URI"
           docker push us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/greenscape-pro/app:latest
 
       - name: Deploy to Cloud Run Service
-        if: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && secrets.GCP_SERVICE_ACCOUNT != '' }}
+        if: steps.check_auth.outputs.has_auth == 'true'
         id: deploy
         uses: google-github-actions/deploy-cloudrun@v2
         with:
@@ -80,7 +86,7 @@ jobs:
             SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest
 
       - name: Automated Smoke Test & Health Check
-        if: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && secrets.GCP_SERVICE_ACCOUNT != '' }}
+        if: steps.check_auth.outputs.has_auth == 'true'
         run: |
           PUBLIC_URL="${{ steps.deploy.outputs.url }}"
           echo "Testing deployment health at: ${PUBLIC_URL}/api/health"
